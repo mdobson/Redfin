@@ -2,8 +2,8 @@
 
 import sys
 
-reload(sys)
-sys.setdefaultencoding('utf-8')
+#reload(sys)
+#sys.setdefaultencoding('utf-8')
 
 from selenium.webdriver import Firefox
 from time import sleep
@@ -11,7 +11,6 @@ import requests
 from bs4 import BeautifulSoup
 from collections import OrderedDict
 import re
-from sets import Set
 import json
 from random import choice, randint
 from selenium.webdriver import Firefox
@@ -30,21 +29,22 @@ class RedFin():
     def __init__(self):
         self.start_url = 'https://www.redfin.com/city/517/CA/Anaheim/'
         self.session = requests.Session()
-        self.use_selenium = False
+        self.use_selenium = False 
         #  proxy option can be set after class object is loaded
         self.use_proxies = False
         self.output_data = []
         self.property_urls = []
         #  load proxies from file one per line proxy:port format
-        self.proxies = [l.rstrip() for l in open('proxies.txt').readlines()]
+        if self.use_proxies == True:
+          self.proxies = [l.rstrip() for l in open('proxies.txt').readlines()]
         #  make a separate session for each proxy
-        self.sessions = {}
-        for proxy in self.proxies:
-            self.sessions[proxy] = {
-                'session': requests.Session(),
-                'proxy': {'http': 'http://' + proxy,
-                          'https': 'https://' + proxy}
-            }
+          self.sessions = {}
+          for proxy in self.proxies:
+              self.sessions[proxy] = {
+                  'session': requests.Session(),
+                  'proxy': {'http': 'http://' + proxy,
+                            'https': 'https://' + proxy}
+              }
         # load data collected so far in order to avoid needing to scrape
         #  the same data twice
         try:
@@ -58,18 +58,20 @@ class RedFin():
 
     def parse_finished_urls(self):
         #  function for removing urls that have already completed
-        done_urls_list = Set()
+        done_urls_list = set()
         for property_data in self.output_data:
             url = property_data['url'][22:]
             done_urls_list.add(url)
             if url in self.property_urls: self.property_urls.remove(url)
         print(str(len(done_urls_list)) + ' properties already done')
         print(str(len(self.property_urls)) + ' proeprties to go')
+        print('Set of urls: %s \n\n' % self.property_urls[:4])
 
     def get_search_results(self):
         page_source = self.request_search_page(self.start_url)
         self.property_urls = reg_property_urls.findall(page_source.replace('\\u002F', '/'))
-        self.property_urls = list(Set(self.property_urls))
+        self.property_urls = [ 'https://redfin.com%s' % u for u in self.property_urls if u.find('https') == -1 ]  
+        self.property_urls = list(set(self.property_urls))
         print('found ' + str(len(self.property_urls)) + ' results')
         self.parse_finished_urls()
 
@@ -98,13 +100,15 @@ class RedFin():
 
     def make_page_request_no_proxy(self, property_url):
         #  use a loop to handle various http request errors and retry
-        #  if 10 fails reached assume we've been blcoked
+        #  if 10 fails reached assume we've been blocked
+        req_url = property_url
+        print('Requesting url: %s' % req_url)
         for i in range(10):
             try:
-                http_response = self.session.get(property_url, headers=user_agent_header, verify=False)
+                http_response = requests.get(req_url, headers=user_agent_header, verify=False)
                 if http_response.status_code == 200: break
             except Exception as e:
-                print(1, 'Request error')
+                print(1, 'Request error code: %s' % e)
             if i == 9: print(1, 'blocked error');exit()
         return http_response.text
 
@@ -189,13 +193,18 @@ class RedFin():
                                                                                                                'class': 'value'}).get_text()
         except:
             property_data['status'] = 'N/A';print('status not found')
-
-        property_data['summary'] = self.soup.find('div', attrs={'class': 'remarks'}).get_text()
-        for row in self.soup.find('div', attrs={'class': 'more-info-div'}).find_all('tr'):
-            cells = row.find_all('td')
-            property_data[cells[0].get_text().strip()] = cells[1].get_text().strip()
+        
+        remarks = self.soup.find('div', attrs={'class': 'remarks'})
+        if remarks is not None: 
+          property_data['summary'] = remarks.get_text()
+          more_info = self.soup.find('div', attrs={'class': 'more-info-div'})
+          if more_info is not None:
+            for row in more_info.find_all('tr'):
+              cells = row.find_all('td')
+              property_data[cells[0].get_text().strip()] = cells[1].get_text().strip()
 
         # use loops to maintain data structure ina dict
+        '''
         property_data['property_details'] = OrderedDict()
         for category in self.soup.find('div', attrs={'class': 'amenities-container'}).children:
             key = category.contents[0].get_text().strip()
@@ -215,8 +224,8 @@ class RedFin():
             history_data_row['price'] = data_cells[2].get_text()
             history_data_row['appreciation'] = data_cells[3].get_text()
             property_data['propert_history'].append(history_data_row)
-
-        property_data['url'] = 'https://www.redfin.com' + property_url
+        '''
+        property_data['url'] = property_url
         self.output_data.append(property_data)
         return property_data
 
